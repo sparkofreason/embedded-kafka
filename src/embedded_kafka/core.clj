@@ -6,9 +6,12 @@
     [java.net InetSocketAddress]
     [org.apache.zookeeper.server ZooKeeperServer NIOServerCnxnFactory]
     [org.apache.commons.io FileUtils]
-    [java.util Properties])
+    [java.util Properties]
+    (org.apache.log4j BasicConfigurator))
   (:require [clojure.java.io :refer [file]]
             [gregor.core :as gregor]))
+
+#_(BasicConfigurator/configure)
 
 (defn as-properties [m]
   (let [ps (Properties.)]
@@ -40,15 +43,16 @@
 (defn create-zookeeper []
   (let [tick-time 500
         zk (ZooKeeperServer. (file (tmp-dir "zookeeper-snapshot")) (file (tmp-dir "zookeeper-log")) tick-time)]
-    (doto (NIOServerCnxnFactory.)
-      (.configure (InetSocketAddress. (read-string (kafka-config "zookeeper-port"))) 60)
-      (.startup zk))))
+    [zk
+     (doto (NIOServerCnxnFactory.)
+       (.configure (InetSocketAddress. (read-string (kafka-config "zookeeper-port"))) 60)
+       (.startup zk))]))
 
 (defmacro with-test-broker
   "Creates an in-process broker that can be used to test against"
   [producer-name consumer-name & body]
   `(do (FileUtils/deleteDirectory (file (tmp-dir)))
-       (let [zk# (create-zookeeper)
+       (let [[zks# zk#] (create-zookeeper)
              kafka# (create-broker)]
          (try
            (.startup kafka#)
@@ -65,4 +69,5 @@
          (finally (do (.shutdown kafka#)
                       (.awaitShutdown kafka#)
                       (.shutdown zk#)
+                      (.. zks# getTxnLogFactory close)
                       (FileUtils/deleteDirectory (file (tmp-dir)))))))))
